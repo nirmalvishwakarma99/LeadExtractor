@@ -1,0 +1,40 @@
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Playwright Browsers & Cache
+.playwright/
+
+# Scraper Outputs & Run Buffers (Do not push heavy data dumps)
+output/checkpoints/*
+output/backup/*
+output/final/*
+output/progress.json
+output/progress.json.tmp
+output/discarded_records.csv
+*.tmp
+
+# Keep the output folder structure intact without tracking files
+!output/**/.gitkeep
+
+# Application Logs
+logs/
+*.log
+
+# IDE & Editor Configs
+.vscode/
+.idea/
+*.swp
+
+# OS Metadata
+Thumbs.db
+Desktop.ini
+.DS_Store

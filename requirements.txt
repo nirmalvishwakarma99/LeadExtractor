@@ -1,0 +1,6 @@
+playwright>=1.40.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+deep-translator>=1.11.4
+rapidfuzz>=3.0.0
+urllib3>=2.0.0
