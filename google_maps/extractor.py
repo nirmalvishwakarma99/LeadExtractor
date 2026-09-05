@@ -71,12 +71,22 @@ class BusinessDetailExtractor:
             pass
 
         # Official Website Link
+        # Official Website Link
         try:
             web_btn = page.locator('a[data-item-id="authority"]').first
             if await web_btn.count() > 0:
                 href = await web_btn.get_attribute('href')
-                if href and "google.com" not in href:
-                    record.website = href.strip()
+                if href:
+                    href = href.strip()
+                    # Google Maps wraps external sites in google.com/url?q=<TARGET_URL>
+                    if "google.com/url?" in href or "google.co.in/url?" in href:
+                        import urllib.parse
+                        parsed = urllib.parse.urlparse(href)
+                        qs = urllib.parse.parse_qs(parsed.query)
+                        if 'q' in qs and qs['q']:
+                            record.website = qs['q'][0].strip()
+                    elif not any(domain in href.lower() for domain in ["google.com", "google.co.in", "goo.gl"]):
+                        record.website = href
         except Exception:
             pass
 

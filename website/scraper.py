@@ -2,6 +2,8 @@ import re
 import asyncio
 from typing import Dict, Any, List
 from playwright.async_api import BrowserContext, Page
+import urllib.parse
+
 
 # ============================================================================
 # EXTRACTION PATTERNS & JUNK FILTERS (from real_estate_contact_scraper.py)
@@ -23,6 +25,25 @@ IGNORED_URL_PATTERNS = [
     "twitter.com", "x.com", "youtube.com", "youtu.be",
     "pinterest.com", "telegram.me", "t.me", "tel:", "mailto:"
 ]
+
+
+
+
+def decode_cloudflare_email(cf_hex: str) -> str:
+    """Decodes obfuscated Cloudflare email strings (cdn-cgi/l/email-protection)."""
+    try:
+        r = int(cf_hex[:2], 16)
+        return ''.join([chr(int(cf_hex[i:i+2], 16) ^ r) for i in range(2, len(cf_hex), 2)])
+    except Exception:
+        return ""
+
+def make_absolute_url(base_url: str, link_href: str) -> str:
+    """Converts relative links like '/contact' or 'contact.html' into valid full URLs."""
+    if not link_href or link_href.startswith(("#", "javascript:", "tel:", "mailto:", "data:")):
+        return ""
+    return urllib.parse.urljoin(base_url, link_href.strip())
+
+
 
 def extract_emails(text: str) -> List[str]:
     if not text:
@@ -179,20 +200,43 @@ class WebsiteScraper:
             pass
         return hidden
 
+
     async def extract_from_links(self, page: Page):
         emails, phones = [], []
         try:
-            links = await page.locator("a[href^='mailto:'], a[href^='tel:']").all()
+            links = await page.locator("a[href^='mailto:'], a[href^='tel:'], a[href*='email-protection']").all()
             for a in links:
                 href = (await a.get_attribute("href") or "").strip()
                 low = href.lower()
                 if low.startswith("mailto:"):
-                    emails.append(href.split(":", 1)[1].split("?")[0])
+                    emails.append(href.split(":", 1)[1].split("?")[0].strip())
                 elif low.startswith("tel:"):
-                    phones.append(href.split(":", 1)[1])
+                    phones.append(href.split(":", 1)[1].strip())
+                # NEW ADDITION: Decode Cloudflare-protected email links
+                elif "email-protection#" in low:
+                    cf_hex = href.split("email-protection#")[-1]
+                    decoded = decode_cloudflare_email(cf_hex)
+                    if decoded and "@" in decoded:
+                        emails.append(decoded)
         except Exception:
             pass
         return emails, phones
+
+    
+    # async def extract_from_links(self, page: Page):
+    #     emails, phones = [], []
+    #     try:
+    #         links = await page.locator("a[href^='mailto:'], a[href^='tel:']").all()
+    #         for a in links:
+    #             href = (await a.get_attribute("href") or "").strip()
+    #             low = href.lower()
+    #             if low.startswith("mailto:"):
+    #                 emails.append(href.split(":", 1)[1].split("?")[0])
+    #             elif low.startswith("tel:"):
+    #                 phones.append(href.split(":", 1)[1])
+    #     except Exception:
+    #         pass
+    #     return emails, phones
 
     async def interact_with_reveal_elements(self, page: Page):
         keywords = ["view mobile", "view number", "show number", "get number", "+91", "contact"]
@@ -233,28 +277,80 @@ class WebsiteScraper:
             emails = extract_emails(body_text) + link_emails
             phones = extract_phones(body_text) + link_phones + attr_phones
 
-            # Deep search contact page if primary page lacked sufficient contact data
-            if not clean_emails(emails) or not [p for p in phones if classify_phone(p)]:
-                contact_link = page.locator(
-                    "a:has-text('Contact'), a:has-text('Contact Us'), a[href*='contact']"
-                ).first
-                if await contact_link.count() > 0:
-                    href = await contact_link.get_attribute("href")
-                    if href and not any(ign in href.lower() for ign in IGNORED_URL_PATTERNS):
-                        try:
-                            await page.goto(href, wait_until="domcontentloaded", timeout=15000)
-                            await self.close_popups(page)
-                            await self.interact_with_reveal_elements(page)
-                            
-                            c_emails, c_phones = await self.extract_from_links(page)
-                            c_attrs = await self.extract_hidden_attributes(page)
-                            c_body = await page.inner_text("body")
 
-                            body_text += "\n" + c_body
-                            emails += extract_emails(c_body) + c_emails
-                            phones += extract_phones(c_body) + c_phones + c_attrs
-                        except Exception:
-                            pass
+            # --- KEEP EXISTING HOMEPAGE EXTRACTION ABOVE THIS ---
+
+            # Enhanced Contact Page Fallback (Additive Code)
+            if not clean_emails(emails) or not [p for p in phones if classify_phone(p)]:
+                candidate_links = []
+
+                # 1. Collect all potential contact links from the page
+                try:
+                    all_nav_links = await page.locator("a").all()
+                    for link_el in all_nav_links:
+                        raw_href = await link_el.get_attribute("href")
+                        link_text = (await link_el.inner_text() or "").lower()
+                        
+                        if raw_href and ("contact" in raw_href.lower() or "contact" in link_text):
+                            abs_url = make_absolute_url(page.url, raw_href)
+                            if abs_url and abs_url not in candidate_links and not any(ign in abs_url.lower() for ign in IGNORED_URL_PATTERNS):
+                                candidate_links.append(abs_url)
+                except Exception:
+                    pass
+
+                # 2. Add common direct path fallbacks if no link was found
+                domain_base = urllib.parse.urlsplit(url).scheme + "://" + urllib.parse.urlsplit(url).netloc
+                for probe_path in ["/contact", "/contact-us", "/contact.html"]:
+                    probe_url = domain_base + probe_path
+                    if probe_url not in candidate_links:
+                        candidate_links.append(probe_url)
+
+                # 3. Visit the best candidates safely
+                for contact_url in candidate_links[:2]:
+                    try:
+                        await page.goto(contact_url, wait_until="domcontentloaded", timeout=12000)
+                        await asyncio.sleep(0.8)
+                        await self.close_popups(page)
+                        await self.interact_with_reveal_elements(page)
+
+                        c_emails, c_phones = await self.extract_from_links(page)
+                        c_attrs = await self.extract_hidden_attributes(page)
+                        c_body = await page.inner_text("body")
+
+                        body_text += "\n" + c_body
+                        emails.extend(extract_emails(c_body) + c_emails)
+                        phones.extend(extract_phones(c_body) + c_phones + c_attrs)
+
+                        # If an email is found, stop probing further
+                        if clean_emails(emails):
+                            break
+                    except Exception:
+                        continue
+
+           
+
+            # Deep search contact page if primary page lacked sufficient contact data
+            # if not clean_emails(emails) or not [p for p in phones if classify_phone(p)]:
+            #     contact_link = page.locator(
+            #         "a:has-text('Contact'), a:has-text('Contact Us'), a[href*='contact']"
+            #     ).first
+            #     if await contact_link.count() > 0:
+            #         href = await contact_link.get_attribute("href")
+            #         if href and not any(ign in href.lower() for ign in IGNORED_URL_PATTERNS):
+            #             try:
+            #                 await page.goto(href, wait_until="domcontentloaded", timeout=15000)
+            #                 await self.close_popups(page)
+            #                 await self.interact_with_reveal_elements(page)
+                            
+            #                 c_emails, c_phones = await self.extract_from_links(page)
+            #                 c_attrs = await self.extract_hidden_attributes(page)
+            #                 c_body = await page.inner_text("body")
+
+            #                 body_text += "\n" + c_body
+            #                 emails += extract_emails(c_body) + c_emails
+            #                 phones += extract_phones(c_body) + c_phones + c_attrs
+            #             except Exception:
+            #                 pass
 
             # Classify & distribute
             result.update(distribute_emails(emails))
