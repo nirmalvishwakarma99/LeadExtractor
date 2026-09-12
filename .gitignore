@@ -38,3 +38,13 @@ logs/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+
+# Other
+Forknowledge.txt
+input/Areas_Name_All_india.xlsx
+legacy_backup/All India PIN Code Data (1).xlsx
+legacy_backup/India_PIN_Codes_Boundaries.csv
+legacy_backup/India_PIN_Codes_with_LatLng.xlsx
+output/zero_results_areas.csv
+temp.py

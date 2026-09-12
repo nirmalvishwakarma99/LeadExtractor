@@ -13,7 +13,7 @@ class ScraperConfig:
     # Path configuration
     base_dir: str = os.path.dirname(os.path.abspath(__file__))
     # input_pincode_file: str = os.path.join(base_dir, "input", "pincode_areas_output.csv")
-    input_pincode_file: str = os.path.join(base_dir, "input", "test_pincode.csv")
+    input_pincode_file: str = r"E:\Projects\google_maps_scraper\input\Areas_Name_All_india.xlsx"
     template_file: str = os.path.join(base_dir, "template", "Formate_for_genral.xlsx")
     
     output_dir: str = os.path.join(base_dir, "output")

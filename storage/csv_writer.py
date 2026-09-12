@@ -97,6 +97,22 @@ class SafeDataWriter:
         combined_df.to_csv(temp_final_csv, index=False, encoding="utf-8-sig")
         os.replace(temp_final_csv, self.final_csv)
 
+    def export_final_excel_with_zero_results(self, zero_results_file: str):
+        """Compiles scraped businesses (Sheet 1) and zero-result areas (Sheet 2)."""
+        import os
+        import pandas as pd
+
+        with pd.ExcelWriter(self.final_excel_file, engine='openpyxl') as writer:
+            # Sheet 1: Valid Scraped Records
+            if os.path.exists(self.final_output_file):
+                df_main = pd.read_csv(self.final_output_file, dtype=str)
+                df_main.to_excel(writer, sheet_name='Scraped Businesses', index=False)
+
+            # Sheet 2: Areas with 0 Listings
+            if os.path.exists(zero_results_file):
+                df_zero = pd.read_csv(zero_results_file, dtype=str)
+                df_zero.to_excel(writer, sheet_name='Zero Results Areas', index=False)
+
     def export_final_excel(self):
         """Builds the final Excel workbook only once after all scrapers have exited."""
         df = None
